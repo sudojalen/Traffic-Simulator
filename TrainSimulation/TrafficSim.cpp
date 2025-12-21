@@ -31,39 +31,60 @@ public:
 };
 
 
-class Car {
+class Vehicle {
 public:
 	sf::RectangleShape shape;
 	float x, y;
 	float velocity;
 	float maxSpeed;
+	float acceleration;
+	float brakingPower;
 
-	Car(float startX, float startY) {
+	virtual ~Vehicle() {}
+
+	Vehicle(float startX, float startY) {
 		x = startX;
 		y = startY;
 		velocity = 0;
-		maxSpeed = 150.0f;	// Roughly 30 mph after adjustment
+	}
+
+	void update(float dt, bool isGreenLight) {
+		if (isGreenLight) {
+			if (velocity < maxSpeed) velocity += acceleration * dt;
+		}
+		else {
+			if (velocity > 0) velocity -= brakingPower * dt;
+			if (velocity < 0) velocity = 0;
+		}
+
+		x += velocity * dt;
+		shape.setPosition(x, y);
+	}
+};
+
+
+class Car : public Vehicle {	// derived class, quick and agile
+public:
+	Car(float startX, float startY) : Vehicle(startX, startY) {
+		maxSpeed = 200.0f;
+		acceleration = 150.0f;
+		brakingPower = 400.0f;
 
 		shape.setSize(sf::Vector2f(40.f, 20.f));
 		shape.setFillColor(sf::Color::Blue);
 		shape.setPosition(x, y);
 	}
+};
 
-	void update(float dt, bool isGreenLight) {
-		if (isGreenLight) {
-			// accelerate
-			if (velocity < maxSpeed) velocity += 100.0f * dt;
-		}
-		else {
-			// brake
-			if (velocity > 0) velocity -= 400.0f * dt;
-			if (velocity < 0) velocity = 0;
-		}
+class Truck : public Vehicle {	// derived class, slow and heavy
+public:
+	Truck(float startX, float startY) : Vehicle(startX, startY) {
+		maxSpeed = 125.0f;
+		acceleration = 100.0f;
+		brakingPower = 200.0f;
 
-		x += velocity * dt;	// Update position based on velocity over time
-
-		if (x > 800) x = -50;	// Rest position if car moves off screen
-
+		shape.setSize(sf::Vector2f(80.f, 30.f));
+		shape.setFillColor(sf::Color::Red);
 		shape.setPosition(x, y);
 	}
 };
@@ -74,8 +95,7 @@ int main() {
 	window.setFramerateLimit(60.0f);
 
 	/*    2. CREATE SIM OBJECTS    */
-	// Car myCar(50.0f, 300.0f);
-	std::vector<Car> fleet;
+	std::vector<Vehicle*> fleet;
 	float spawnTimer = 0.0f;
 	TraficLight light(600.f, 250.f);
 
@@ -94,11 +114,23 @@ int main() {
 		sf::Time elapsed = clock.restart();
 		float dt = elapsed.asSeconds();
 
+		// garbage collection
+		if (!fleet.empty() && fleet.front()->x > 800) {
+			delete fleet.front();
+			fleet.erase(fleet.begin());	// remove the first element from the vector
+		}
+
 		// logic: spawner
 		spawnTimer += dt;
-		if (spawnTimer > 5.0f) {	// spawn ever 'x' seconds
-			if (fleet.empty() || fleet.back().x > 50.0f) {
-				fleet.push_back(Car(-50.f, 300.f));
+		if (spawnTimer > 2.0f) {
+			if (fleet.empty() || fleet.back()->x > 100.f) {
+				int r = rand() % 2;
+				if (r == 0) {
+					fleet.push_back(new Car(-100.f, 300.f));
+				}
+				else {
+					fleet.push_back(new Truck(-100.f, 300.f));
+				}
 				spawnTimer = 0;
 			}
 		}
@@ -113,21 +145,21 @@ int main() {
 			bool mustStop = false;
 
 			if (light.state == 0) {
-				if (fleet[i].x < limitLineX && (limitLineX - fleet[i].x) < 200) {
+				if (fleet[i]->x < limitLineX && (limitLineX - fleet[i]->x) < 300) {
 					mustStop = true;
 				}
 			}
 
 			if (i > 0) {
-				Car& leader = fleet[i - 1];
-				float distanceToLeader = leader.x - fleet[i].x;
+				Vehicle* leader  = fleet[i - 1];
+				float distanceToLeader = leader->x - fleet[i]->x;
 
 				if (distanceToLeader < 100.0f && distanceToLeader > 0) {
 					mustStop = true;
 				}
 			}
 			// update this specific car
-			fleet[i].update(dt, !mustStop);
+			fleet[i]->update(dt, !mustStop);
 		}
 
 		/*    RENDER SECTION    */
@@ -143,8 +175,8 @@ int main() {
 		window.draw(light.shape);
 
 		// draw fleet
-		for (Car& car : fleet) {
-			window.draw(car.shape);
+		for (Vehicle* v : fleet) {
+			window.draw(v->shape);
 		}
 
 		window.display();
