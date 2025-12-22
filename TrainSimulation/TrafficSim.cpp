@@ -1,6 +1,8 @@
 #include <SFML/Graphics.hpp>
 #include <vector>
 #include <iostream>
+#include <thread>
+#include <mutex>
 
 /*    SIMULATION PARAMETERS    */
 const float PIXELS_PER_METER = 20.0f;
@@ -107,17 +109,91 @@ public:
 	}
 };
 
+
+
+/*    SHARED VARIABLES    */
+std::mutex dataMutex;
+std::vector<Vehicle*> fleet;
+TrafficLight light(600.f, 250.f);
+bool isSimulationRunning = true;
+
+/*    PHYSICS LOOP    */
+void PhysicsLoop() {
+	sf::Clock physicsClock;
+	float spawnTimer{ 0.0f };
+
+	while (isSimulationRunning) {
+		sf::Time elapsed = physicsClock.restart();
+		float dt = elapsed.asSeconds();
+
+		// LOCK data
+		{
+			std::lock_guard<std::mutex> lock(dataMutex);
+
+			// garbage collection
+			if (!fleet.empty() && fleet.front()->x > 800) {
+				delete fleet.front();
+				fleet.erase(fleet.begin());
+			}
+
+			// spawn logic
+			spawnTimer += dt;
+			if (spawnTimer > 2.0f) {
+				if (fleet.empty() || fleet.back()->x > 100.f) {
+					int r = rand() % 2;
+					if (r == 0) fleet.push_back(new Car(-100.f, 300.f));
+					else fleet.push_back(new Truck(-100.f, 300.f));
+					spawnTimer = 0;
+				}
+			}
+
+			// update light
+			light.update(dt);
+
+			// update fleet
+			for (size_t i = 0; i < fleet.size(); i++) {
+				float limitLineX = light.shape.getPosition().x;
+				bool mustStop = false;
+
+				if (light.state == RED) {
+					if (fleet[i]->x < limitLineX && (limitLineX - fleet[i]->x) < 150) {
+						mustStop = true;
+					}
+				}
+				else if (light.state == YELLOW) {
+					if (fleet[i]->runsYellowLight == false) {
+						if (fleet[i]->x < limitLineX && (limitLineX - fleet[i]->x) < 150) {
+							mustStop = true;
+						}
+					}
+				}
+
+				if (i > 0) {
+					Vehicle* leader = fleet[i - 1];
+					float distanceToLeader = leader->x - fleet[i]->x;
+
+					if (distanceToLeader < 100.0f && distanceToLeader > 0) {
+						mustStop = true;
+					}
+				}
+				// update this specific car
+				fleet[i]->update(dt, !mustStop);
+			}
+		}	// UNLOCK
+
+		std::this_thread::sleep_for(std::chrono::milliseconds(10));
+	}
+}
+
+
+
 int main() {
 	/*    1. SETUP WINDOW    */
 	sf::RenderWindow window(sf::VideoMode(800, 600), "TRAFFIC SIMULATION");
 	window.setFramerateLimit(60.0f);
 
-	/*    2. CREATE SIM OBJECTS    */
-	std::vector<Vehicle*> fleet;
-	float spawnTimer = 0.0f;
-	TrafficLight light(600.f, 250.f);
-
-	sf::Clock clock;
+	/*    2. LAUNGH PHYSICS THREAD    */
+	std::thread bgThread(PhysicsLoop);
 
 	/*    3. SIMLUATION LOOP    */
 	while (window.isOpen()) {
@@ -128,84 +204,31 @@ int main() {
 			}
 		}
 
-		// physics section
-		sf::Time elapsed = clock.restart();
-		float dt = elapsed.asSeconds();
-
-		// garbage collection
-		if (!fleet.empty() && fleet.front()->x > 800) {
-			delete fleet.front();
-			fleet.erase(fleet.begin());	// remove the first element from the vector
-		}
-
-		// logic: spawner
-		spawnTimer += dt;
-		if (spawnTimer > 2.0f) {
-			if (fleet.empty() || fleet.back()->x > 100.f) {
-				int r = rand() % 2;
-				if (r == 0) {
-					fleet.push_back(new Car(-100.f, 300.f));
-				}
-				else {
-					fleet.push_back(new Truck(-100.f, 300.f));
-				}
-				spawnTimer = 0;
-			}
-		}
-
-		// update traffic light (independant of cars)
-		light.update(dt);
-
-
-		// logic: fleet
-		for (size_t i = 0; i < fleet.size(); i++) {
-			float limitLineX = light.shape.getPosition().x;
-			bool mustStop = false;
-
-			if (light.state == RED) {
-				if (fleet[i]->x < limitLineX && (limitLineX - fleet[i]->x) < 150) {
-					mustStop = true;
-				}
-			}
-			else if (light.state == YELLOW) {
-				if (fleet[i]->runsYellowLight == false) {
-					if (fleet[i]->x < limitLineX && (limitLineX - fleet[i]->x) < 150) {
-						mustStop = true;
-					}
-				}
-			}
-
-			if (i > 0) {
-				Vehicle* leader  = fleet[i - 1];
-				float distanceToLeader = leader->x - fleet[i]->x;
-
-				if (distanceToLeader < 100.0f && distanceToLeader > 0) {
-					mustStop = true;
-				}
-			}
-			// update this specific car
-			fleet[i]->update(dt, !mustStop);
-		}
-
-		/*    RENDER SECTION    */
+		// RENDER section
 		window.clear(sf::Color(50, 50, 50));
+		
+		{	// LOCK
+			std::lock_guard<std::mutex> lock(dataMutex);
 
-		// draw road
-		sf::RectangleShape roadStrip(sf::Vector2f(800.f, 100.f));
-		roadStrip.setPosition(0, 260);
-		roadStrip.setFillColor(sf::Color(30, 30, 30));
-		window.draw(roadStrip);
+			// draw road
+			sf::RectangleShape roadStrip(sf::Vector2f(800.f, 100.f));
+			roadStrip.setPosition(0, 260);
+			roadStrip.setFillColor(sf::Color(30, 30, 30));
+			window.draw(roadStrip);
 
-		// draw light
-		window.draw(light.shape);
+			// draw light
+			window.draw(light.shape);
 
-		// draw fleet
-		for (Vehicle* v : fleet) {
-			window.draw(v->shape);
-		}
-
+			// draw fleet
+			for (Vehicle* v : fleet) {
+				window.draw(v->shape);
+			}
+		}	// UNLOCK
 		window.display();
-
 	}
+
+	isSimulationRunning = false;
+	bgThread.join();
+
 	return 0;
 }
