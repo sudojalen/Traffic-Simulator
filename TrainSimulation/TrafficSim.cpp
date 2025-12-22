@@ -6,39 +6,55 @@
 const float PIXELS_PER_METER = 20.0f;
 const float TIME_STEP = 1.0f / 60.0f;
 
-class TraficLight {
+
+enum LightState { RED, GREEN, YELLOW };
+
+class TrafficLight {
 public:
 	sf::CircleShape shape;
-	int state; // 0 = RED, 1 = GREEN
+	LightState state;
 	float timer;
 
-	TraficLight(float x, float y) {
+	TrafficLight(float x, float y) {
 		shape.setRadius(15.f);
 		shape.setPosition(x, y);
 		shape.setFillColor(sf::Color::Red);
-		state = 0;
+		state = RED;
 		timer = 0;
 	}
 
 	void update(float dt) {
 		timer += dt;
-		if (timer > 10.0f) {		// 'x' second lights
+
+		if (state == GREEN && timer > 8.0f) {
+			state = YELLOW;
+			shape.setFillColor(sf::Color::Yellow);
 			timer = 0;
-			state = (state + 1) % 2;
-			shape.setFillColor(state == 0 ? sf::Color::Red : sf::Color::Green);
+		}
+		else if (state == YELLOW && timer > 2.5f) {
+			state = RED;
+			shape.setFillColor(sf::Color::Red);
+			timer = 0;
+		}
+		else if (state == RED && timer > 5.0f) {
+			state = GREEN;
+			shape.setFillColor(sf::Color::Green);
+			timer = 0;
 		}
 	}
 };
+
 
 
 class Vehicle {
 public:
 	sf::RectangleShape shape;
 	float x, y;
-	float velocity;
-	float maxSpeed;
-	float acceleration;
-	float brakingPower;
+	float velocity{ 0 };
+	float maxSpeed{ 0 };
+	float acceleration{ 0 };
+	float brakingPower{ 0 };
+	bool runsYellowLight;
 
 	virtual ~Vehicle() {}
 
@@ -46,6 +62,7 @@ public:
 		x = startX;
 		y = startY;
 		velocity = 0;
+		runsYellowLight = false;
 	}
 
 	void update(float dt, bool isGreenLight) {
@@ -70,7 +87,7 @@ public:
 		acceleration = 150.0f;
 		brakingPower = 400.0f;
 
-		shape.setSize(sf::Vector2f(40.f, 20.f));
+		shape.setSize(sf::Vector2f(20.f, 10.f));
 		shape.setFillColor(sf::Color::Blue);
 		shape.setPosition(x, y);
 	}
@@ -82,8 +99,9 @@ public:
 		maxSpeed = 125.0f;
 		acceleration = 100.0f;
 		brakingPower = 200.0f;
+		runsYellowLight = true;
 
-		shape.setSize(sf::Vector2f(80.f, 30.f));
+		shape.setSize(sf::Vector2f(40.f, 15.f));
 		shape.setFillColor(sf::Color::Red);
 		shape.setPosition(x, y);
 	}
@@ -97,7 +115,7 @@ int main() {
 	/*    2. CREATE SIM OBJECTS    */
 	std::vector<Vehicle*> fleet;
 	float spawnTimer = 0.0f;
-	TraficLight light(600.f, 250.f);
+	TrafficLight light(600.f, 250.f);
 
 	sf::Clock clock;
 
@@ -144,9 +162,16 @@ int main() {
 			float limitLineX = light.shape.getPosition().x;
 			bool mustStop = false;
 
-			if (light.state == 0) {
-				if (fleet[i]->x < limitLineX && (limitLineX - fleet[i]->x) < 300) {
+			if (light.state == RED) {
+				if (fleet[i]->x < limitLineX && (limitLineX - fleet[i]->x) < 150) {
 					mustStop = true;
+				}
+			}
+			else if (light.state == YELLOW) {
+				if (fleet[i]->runsYellowLight == false) {
+					if (fleet[i]->x < limitLineX && (limitLineX - fleet[i]->x) < 150) {
+						mustStop = true;
+					}
 				}
 			}
 
