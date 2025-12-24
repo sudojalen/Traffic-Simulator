@@ -51,6 +51,7 @@ public:
 class Vehicle {
 public:
 	sf::RectangleShape shape;
+	sf::RectangleShape sensor;
 	float x, y;
 	float velocity{ 0 };
 	float maxSpeed{ 0 };
@@ -65,6 +66,8 @@ public:
 		y = startY;
 		velocity = 0;
 		runsYellowLight = false;
+		sensor.setSize(sf::Vector2f(60.f, 10.f));
+		sensor.setFillColor(sf::Color(255, 0, 0, 100));
 	}
 
 	void update(float dt, bool isGreenLight) {
@@ -78,6 +81,8 @@ public:
 
 		x += velocity * dt;
 		shape.setPosition(x, y);
+
+		sensor.setPosition(x + 40.f, y + 5.f);
 	}
 };
 
@@ -85,9 +90,9 @@ public:
 class Car : public Vehicle {	// derived class, quick and agile
 public:
 	Car(float startX, float startY) : Vehicle(startX, startY) {
-		maxSpeed = 200.0f;
-		acceleration = 150.0f;
-		brakingPower = 400.0f;
+		maxSpeed = 150.0f;
+		acceleration = 120.0f;
+		brakingPower = 200.0f;
 
 		shape.setSize(sf::Vector2f(20.f, 10.f));
 		shape.setFillColor(sf::Color::Blue);
@@ -98,9 +103,9 @@ public:
 class Truck : public Vehicle {	// derived class, slow and heavy
 public:
 	Truck(float startX, float startY) : Vehicle(startX, startY) {
-		maxSpeed = 125.0f;
+		maxSpeed = 100.0f;
 		acceleration = 100.0f;
-		brakingPower = 200.0f;
+		brakingPower = 150.0f;
 		runsYellowLight = true;
 
 		shape.setSize(sf::Vector2f(40.f, 15.f));
@@ -168,12 +173,11 @@ void PhysicsLoop() {
 					}
 				}
 
-				if (i > 0) {
-					Vehicle* leader = fleet[i - 1];
-					float distanceToLeader = leader->x - fleet[i]->x;
-
-					if (distanceToLeader < 100.0f && distanceToLeader > 0) {
+				for (size_t j{ 0 }; j < fleet.size(); j++) {
+					if (i == j) continue;	// dont check youself
+					if (fleet[i]->sensor.getGlobalBounds().intersects(fleet[j]->shape.getGlobalBounds())) {
 						mustStop = true;
+						break;	// we found another car so stop
 					}
 				}
 				// update this specific car
@@ -190,7 +194,7 @@ void PhysicsLoop() {
 int main() {
 	/*    1. SETUP WINDOW    */
 	sf::RenderWindow window(sf::VideoMode(800, 600), "TRAFFIC SIMULATION");
-	window.setFramerateLimit(60.0f);
+	window.setFramerateLimit(60);
 
 	/*    2. LAUNGH PHYSICS THREAD    */
 	std::thread bgThread(PhysicsLoop);
@@ -222,6 +226,7 @@ int main() {
 			// draw fleet
 			for (Vehicle* v : fleet) {
 				window.draw(v->shape);
+				window.draw(v->sensor);	// for debugging
 			}
 		}	// UNLOCK
 		window.display();
